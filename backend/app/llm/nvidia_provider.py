@@ -1,10 +1,10 @@
 """NVIDIA NIMs provider — uses NVIDIA's cloud API for LLM inference.
 
 NVIDIA NIMs (NVIDIA Inference Microservices) provides OpenAI-compatible
-chat completions at https://api.nvidia.com/v1.
+chat completions at https://integrate.api.nvidia.com/v1.
 
-Requires NVIDIA_API_KEY environment variable.
-Default model: meta/llama-3.1-405b-instruct
+Requires NVIDIA_API_KEY environment variable (nvapi-...).
+Default model: meta/llama-3.1-70b-instruct
 """
 
 import os
@@ -12,12 +12,12 @@ from openai import OpenAI, AsyncOpenAI
 
 from app.llm.base import LLMProvider, LLMResponse
 
-NVIDIA_BASE_URL = "https://api.nvidia.com/v1"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 
 class NVIDIAProvider(LLMProvider):
     name: str = "nvidia"
-    model: str = "meta/llama-3.1-405b-instruct"
+    model: str = "meta/llama-3.1-70b-instruct"
 
     def __init__(self, model: str | None = None, api_key: str | None = None, **kwargs):
         super().__init__(model, **kwargs)

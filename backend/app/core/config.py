@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     DEFAULT_LLM_PROVIDER: str = "nvidia"
-    DEFAULT_LLM_MODEL: str = "meta/llama-3.1-405b-instruct"
+    DEFAULT_LLM_MODEL: str = "meta/llama-3.1-70b-instruct"
 
     # Memory
     MEMORY_PERSIST_DIR: str = "./chroma_memory"

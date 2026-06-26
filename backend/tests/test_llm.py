@@ -140,4 +140,4 @@ def test_openrouter_provider_create_with_key():
 def test_default_provider_is_nvidia():
     provider = create_llm()
     assert provider.name == "nvidia"
-    assert provider.model == "meta/llama-3.1-405b-instruct"
+    assert provider.model == "meta/llama-3.1-70b-instruct"
