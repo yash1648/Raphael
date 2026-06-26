@@ -1,23 +1,27 @@
 """LLM Provider factory — creates providers from config."""
 
 from app.llm.base import LLMProvider
+from app.llm.nvidia_provider import NVIDIAProvider
+from app.llm.openrouter_provider import OpenRouterProvider
 from app.llm.openai_provider import OpenAIProvider
 from app.llm.anthropic_provider import AnthropicProvider
 from app.llm.ollama_provider import OllamaProvider
 
 
 PROVIDER_MAP: dict[str, type[LLMProvider]] = {
+    "nvidia": NVIDIAProvider,
+    "openrouter": OpenRouterProvider,
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
     "ollama": OllamaProvider,
 }
 
 
-def create_llm(provider: str = "openai", **kwargs) -> LLMProvider:
+def create_llm(provider: str = "nvidia", **kwargs) -> LLMProvider:
     """Create an LLM provider by name.
 
     Args:
-        provider: One of 'openai', 'anthropic', 'ollama'
+        provider: One of 'nvidia', 'openrouter', 'openai', 'anthropic', 'ollama'
         **kwargs: Passed to provider constructor (model, api_key, base_url, etc.)
 
     Returns:

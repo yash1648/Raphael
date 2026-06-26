@@ -6,10 +6,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./raphael.db"
 
     # LLM Providers
+    NVIDIA_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
-    DEFAULT_LLM_PROVIDER: str = "openai"
-    DEFAULT_LLM_MODEL: str = "gpt-4o"
+    DEFAULT_LLM_PROVIDER: str = "nvidia"
+    DEFAULT_LLM_MODEL: str = "meta/llama-3.1-405b-instruct"
 
     # Memory
     MEMORY_PERSIST_DIR: str = "./chroma_memory"

@@ -26,6 +26,8 @@ class MockProvider(LLMProvider):
 
 def test_list_providers():
     providers = list_providers()
+    assert "nvidia" in providers
+    assert "openrouter" in providers
     assert "openai" in providers
     assert "anthropic" in providers
     assert "ollama" in providers
@@ -47,6 +49,20 @@ def test_create_ollama():
     provider = create_llm("ollama", model="llama3", base_url="http://localhost:11434")
     assert provider.name == "ollama"
     assert provider.model == "llama3"
+
+
+def test_create_nvidia():
+    provider = create_llm("nvidia", model="meta/llama-3.1-8b-instruct")
+    assert provider.name == "nvidia"
+    assert provider.model == "meta/llama-3.1-8b-instruct"
+    assert provider._has_credentials is False
+
+
+def test_create_openrouter():
+    provider = create_llm("openrouter", model="mistralai/mixtral-8x22b-instruct")
+    assert provider.name == "openrouter"
+    assert provider.model == "mistralai/mixtral-8x22b-instruct"
+    assert provider._has_credentials is False
 
 
 def test_create_unknown_provider():
@@ -105,3 +121,23 @@ def test_ollama_provider(mock_client):
 def test_create_llm_preserves_kwargs():
     provider = create_llm("openai", model="gpt-4o-mini", api_key="test-key")
     assert provider.model == "gpt-4o-mini"
+
+
+def test_nvidia_provider_create_with_key():
+    provider = create_llm("nvidia", api_key="nv-test-key", model="test-model")
+    assert provider.name == "nvidia"
+    assert provider.model == "test-model"
+    assert provider._has_credentials is True
+
+
+def test_openrouter_provider_create_with_key():
+    provider = create_llm("openrouter", api_key="or-test-key", model="test-model")
+    assert provider.name == "openrouter"
+    assert provider.model == "test-model"
+    assert provider._has_credentials is True
+
+
+def test_default_provider_is_nvidia():
+    provider = create_llm()
+    assert provider.name == "nvidia"
+    assert provider.model == "meta/llama-3.1-405b-instruct"
