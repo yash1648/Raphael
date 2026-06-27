@@ -5,11 +5,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./raphael.db"
 
-    # LLM Providers
+    # LLM Providers (free — no paid API keys required)
     NVIDIA_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
-    OPENAI_API_KEY: str = ""
-    ANTHROPIC_API_KEY: str = ""
     DEFAULT_LLM_PROVIDER: str = "nvidia"
     DEFAULT_LLM_MODEL: str = "meta/llama-3.1-70b-instruct"
 
@@ -24,7 +22,7 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

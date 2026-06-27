@@ -35,7 +35,7 @@ def cmd_chat(prompt_args, supervise):
     console.print("[bold cyan]⚡ Raphael Chat[/bold cyan]")
     console.print("[dim]Type 'exit' to quit, 'reset' to clear context[/dim]\n")
 
-    llm = create_llm("openai")
+    llm = create_llm("nvidia")
     agent = SupervisorAgent(llm=llm) if supervise else None
 
     if prompt_args:
@@ -95,7 +95,7 @@ def cmd_run(prompt, supervise, json_output):
             result = agent.execute_goal(prompt)
             response = result.get("response", "")
         else:
-            llm = create_llm("openai")
+            llm = create_llm("nvidia")
             result = llm.generate(prompt, system_prompt="You are Raphael, a super powerful autonomous AI assistant.")
             response = result.content
 

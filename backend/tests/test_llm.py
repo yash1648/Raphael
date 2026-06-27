@@ -28,27 +28,8 @@ def test_list_providers():
     providers = list_providers()
     assert "nvidia" in providers
     assert "openrouter" in providers
-    assert "openai" in providers
-    assert "anthropic" in providers
     assert "ollama" in providers
-
-
-def test_create_openai():
-    provider = create_llm("openai", model="gpt-4o-mini")
-    assert provider.name == "openai"
-    assert provider.model == "gpt-4o-mini"
-
-
-def test_create_anthropic():
-    provider = create_llm("anthropic", model="claude-sonnet-4-20250514")
-    assert provider.name == "anthropic"
-    assert provider.model == "claude-sonnet-4-20250514"
-
-
-def test_create_ollama():
-    provider = create_llm("ollama", model="llama3", base_url="http://localhost:11434")
-    assert provider.name == "ollama"
-    assert provider.model == "llama3"
+    assert len(providers) == 3
 
 
 def test_create_nvidia():
@@ -63,6 +44,12 @@ def test_create_openrouter():
     assert provider.name == "openrouter"
     assert provider.model == "mistralai/mixtral-8x22b-instruct"
     assert provider._has_credentials is False
+
+
+def test_create_ollama():
+    provider = create_llm("ollama", model="llama3", base_url="http://localhost:11434")
+    assert provider.name == "ollama"
+    assert provider.model == "llama3"
 
 
 def test_create_unknown_provider():
@@ -85,13 +72,13 @@ def test_mock_provider_generate():
 def test_llm_response_dataclass():
     response = LLMResponse(
         content="Test response",
-        model="gpt-4",
-        provider="openai",
+        model="nvidia",
+        provider="nvidia",
         usage={"total_tokens": 100},
     )
     assert response.content == "Test response"
-    assert response.model == "gpt-4"
-    assert response.provider == "openai"
+    assert response.model == "nvidia"
+    assert response.provider == "nvidia"
     assert response.usage["total_tokens"] == 100
 
 
@@ -111,16 +98,10 @@ def test_ollama_provider(mock_client):
     mock_client.return_value.__enter__.return_value.post.return_value = mock_response
 
     provider = OllamaProvider(model="llama3", base_url="http://localhost:11434")
-    # Override _generate_sync to use mock
     provider._generate_sync = lambda prompt, system_prompt=None, **kwargs: {"response": "Mocked Ollama response"}
     response = provider.generate("Hello")
     assert response.content == "Mocked Ollama response"
     assert response.provider == "ollama"
-
-
-def test_create_llm_preserves_kwargs():
-    provider = create_llm("openai", model="gpt-4o-mini", api_key="test-key")
-    assert provider.model == "gpt-4o-mini"
 
 
 def test_nvidia_provider_create_with_key():

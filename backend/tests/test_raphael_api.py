@@ -22,9 +22,10 @@ def test_llm_providers_endpoint(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "providers" in data
-    assert "openai" in data["providers"]
-    assert "anthropic" in data["providers"]
+    assert "nvidia" in data["providers"]
+    assert "openrouter" in data["providers"]
     assert "ollama" in data["providers"]
+    assert len(data["providers"]) == 3
 
 
 def test_memory_count(client):
