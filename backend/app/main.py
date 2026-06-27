@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,7 +9,14 @@ from app.api import (
     tasks_router, tools_router, workflows_router,
 )
 from app.api.raphael import router as raphael_router
+from app.core.config import settings
 from app.database import Base, engine
+
+# Export LLM keys to environment so providers can find them
+for key in ["NVIDIA_API_KEY", "OPENROUTER_API_KEY"]:
+    value = getattr(settings, key, "")
+    if value and not os.environ.get(key):
+        os.environ[key] = value
 
 Base.metadata.create_all(bind=engine)
 
