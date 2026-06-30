@@ -11,18 +11,21 @@ Requires OPENROUTER_API_KEY environment variable.
 import os
 from openai import OpenAI, AsyncOpenAI
 
-from app.llm.base import LLMProvider, LLMResponse
+from app.llm.base import LLMProvider, LLMResponse, resolve_api_key, ConnectionPool
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Global connection pool instance
+_connection_pool = ConnectionPool()
 
 
 class OpenRouterProvider(LLMProvider):
     name: str = "openrouter"
-    model: str = "openai/gpt-4o"  # Routes through OpenRouter — wide model selection
+    model: str = "openrouter/free"  # Free models router — auto-selects from 25+ free models
 
     def __init__(self, model: str | None = None, api_key: str | None = None, **kwargs):
         super().__init__(model, **kwargs)
-        resolved_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        resolved_key = api_key or resolve_api_key("OPENROUTER_API_KEY")
         safe_key = resolved_key if resolved_key else "no-key-configured"
 
         # OpenRouter recommends identifying your app via headers

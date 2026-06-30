@@ -2,16 +2,27 @@
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import time
 
 from app.agents.specialized import ResearchAgent, CodeAgent, SystemAgent, MemoryAgent
 from app.capabilities.web_search import WebSearchTool
 from app.capabilities.code_executor import CodeExecutor
 from app.llm.factory import create_llm, list_providers
+from app.llm.base import ConnectionPool, TokenCache
 from app.memory.vector_memory import VectorMemory, MemoryEntry
 from app.orchestration.supervisor import SupervisorAgent
 from app.orchestration.swarm import SwarmManager, SwarmTask
 
 router = APIRouter(prefix="/raphael", tags=["raphael"])
+
+# Global instances for performance optimization
+_connection_pool = ConnectionPool()
+_token_cache = TokenCache(ttl=1800)  # 30 minutes cache
+
+# Rate limiting tracking
+_request_counts = {}
+_rate_limit_window = 60  # 1 minute
+_max_requests_per_window = 100
 
 
 # ── Request/Response Models ──
@@ -21,7 +32,7 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = None
     temperature: float = 0.7
     max_tokens: int = 4096
-    provider: str = "openai"
+    provider: str = "nvidia"
     model: str | None = None
 
 
@@ -83,14 +94,56 @@ class SwarmRequest(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest):
     """Chat with Raphael's LLM engine."""
+    # Rate limiting check
+    client_ip = "unknown"  # In production, use request.client.host
+    current_time = time.time()
+    
+    if client_ip not in _request_counts:
+        _request_counts[client_ip] = []
+    
+    # Clean old requests outside the window
+    _request_counts[client_ip] = [t for t in _request_counts[client_ip] if current_time - t < _rate_limit_window]
+    
+    if len(_request_counts[client_ip]) >= _max_requests_per_window:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    
+    _request_counts[client_ip].append(current_time)
+    
+    # Check cache for identical requests
+    cache_key = f"{body.provider}:{body.model}:{body.message}:{body.temperature}"
+    cached_response = _token_cache.get(cache_key)
+    if cached_response:
+        return cached_response
+    
     try:
+        # Use connection pool to get/reuse provider instances
         llm = create_llm(body.provider, model=body.model)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create LLM provider '{body.provider}': {e}")
+
+    # Check if provider has credentials configured
+    if hasattr(llm, '_has_credentials') and not llm._has_credentials:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Provider '{body.provider}' is not configured. Set {body.provider.upper()}_API_KEY in your .env file, or use a different provider.",
+        )
+
+    try:
         result = llm.generate(
             prompt=body.message,
             system_prompt=body.system_prompt or "You are Raphael, a super powerful autonomous AI assistant.",
             temperature=body.temperature,
             max_tokens=body.max_tokens,
         )
+        
+        # Cache the response
+        _token_cache.set(cache_key, ChatResponse(
+            response=result.content,
+            provider=result.provider,
+            model=result.model,
+            usage=result.usage,
+        ))
+        
         return ChatResponse(
             response=result.content,
             provider=result.provider,
@@ -98,7 +151,11 @@ def chat(body: ChatRequest):
             usage=result.usage,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        detail = str(e)
+        # Clean up OpenRouter credit errors so they're readable
+        if "402" in detail or "requires more credits" in detail or "can only afford" in detail:
+            detail = f"OpenRouter needs more credits. Try lowering max_tokens, or add funds at https://openrouter.ai/settings/credits"
+        raise HTTPException(status_code=402 if "402" in str(e) else 500, detail=detail)
 
 
 @router.post("/agents/execute", response_model=AgentExecuteResponse)

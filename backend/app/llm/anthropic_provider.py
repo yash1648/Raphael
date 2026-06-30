@@ -1,3 +1,4 @@
+import os
 from anthropic import Anthropic, AsyncAnthropic
 
 from app.llm.base import LLMProvider, LLMResponse
@@ -9,8 +10,11 @@ class AnthropicProvider(LLMProvider):
 
     def __init__(self, model: str | None = None, api_key: str | None = None, **kwargs):
         super().__init__(model, **kwargs)
-        self._client = Anthropic(api_key=api_key)
-        self._async_client = AsyncAnthropic(api_key=api_key)
+        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        safe_key = resolved_key if resolved_key else "no-key-configured"
+        self._client = Anthropic(api_key=safe_key)
+        self._async_client = AsyncAnthropic(api_key=safe_key)
+        self._has_credentials = bool(resolved_key)
 
     def generate(
         self,

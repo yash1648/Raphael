@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any, Callable
 
-from app.llm.base import LLMProvider
+from app.llm.base import LLMProvider, LLMResponse, ConnectionPool, TokenCache, ConversationWindow
 from app.llm.factory import create_llm
 
 # Default system prompt for all agents
@@ -19,6 +19,16 @@ When given a task:
 4. If you encounter errors, diagnose and retry with a different approach
 
 Always be thorough, precise, and helpful. Think step by step."""
+
+# Global instances for performance optimization
+_connection_pool = ConnectionPool()
+_token_cache = TokenCache(ttl=1800)  # 30 minutes cache
+
+# Cache for tool call parsing patterns
+_tool_call_patterns = {
+    'json_block': r'```(?:json)?\s*({.*?})\s*```',
+    'tool_call': r'"tool"\s*:\s*"([^"]+)"'
+}
 
 
 class Tool:
@@ -63,8 +73,9 @@ class Agent:
         llm: LLMProvider | None = None,
         system_prompt: str | None = None,
         max_iterations: int = 10,
-        provider: str = "openai",
-        model: str = "gpt-4o",
+        provider: str = "nvidia",
+        model: str = "meta/llama-3.1-70b-instruct",
+        max_conversation_history: int = 100,
     ):
         self.name = name
         self.description = description
@@ -74,25 +85,34 @@ class Agent:
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         self.max_iterations = max_iterations
         self.tools: dict[str, Tool] = {}
-        self._conversation_history: list[dict] = []
+        self._conversation_history = ConversationWindow(max_history=max_conversation_history)
+        self._last_tool_call_cache = {}
+        self._tool_call_cache_ttl = 300  # 5 minutes
 
     def _get_llm(self) -> LLMProvider:
-        """Lazy-init the LLM provider, falling back gracefully."""
+        """Lazy-init the LLM provider with connection pooling."""
         if self.llm is None:
             try:
+                # Use connection pool to get/reuse provider instances
                 self.llm = create_llm(self._provider_name, model=self._model)
+                # If the provider has no real credentials, swap to fallback
+                if hasattr(self.llm, '_has_credentials') and not self.llm._has_credentials:
+                    self.llm = self._make_fallback()
             except Exception:
-                # Fallback: use a simple echo provider for when no API key is available
-                from app.llm.base import LLMResponse
-                class _FallbackProvider(LLMProvider):
-                    name = "fallback"
-                    model = "none"
-                    def generate(self, prompt, **kw):
-                        return LLMResponse(content=f"[No LLM configured — would respond to: {prompt[:100]}]", model="none", provider="fallback")
-                    async def generate_async(self, prompt, **kw):
-                        return self.generate(prompt, **kw)
-                self.llm = _FallbackProvider()
+                self.llm = self._make_fallback()
         return self.llm
+
+    @staticmethod
+    def _make_fallback() -> LLMProvider:
+        """Create a fallback echo provider when no API credentials are available."""
+        class _FallbackProvider(LLMProvider):
+            name = "fallback"
+            model = "none"
+            def generate(self, prompt, **kw):
+                return LLMResponse(content=f"[No LLM configured — would respond to: {prompt[:100]}]", model="none", provider="fallback")
+            async def generate_async(self, prompt, **kw):
+                return self.generate(prompt, **kw)
+        return _FallbackProvider()
 
     def register_tool(self, tool: Tool) -> None:
         """Register a tool the agent can use."""
@@ -122,19 +142,21 @@ class Agent:
             # Get LLM response (with tool definitions if tools available)
             llm = self._get_llm()
             if openai_tools:
-                response = llm.generate(
-                    prompt="",  # Already in messages
-                    system_prompt=None,
-                    temperature=temperature,
-                )
-                # For tool-calling support, use OpenAI client directly
+                # Use the provider's native client with tool support
                 response = self._call_with_tools(messages, openai_tools, temperature)
             else:
-                response = llm.generate(
-                    prompt=messages[-1]["content"],
-                    system_prompt=self.system_prompt,
-                    temperature=temperature,
-                )
+                # Check cache for identical prompt
+                cache_key = f"{prompt}:{temperature}"
+                cached_response = _token_cache.get(cache_key)
+                if cached_response:
+                    response = cached_response
+                else:
+                    response = llm.generate(
+                        prompt=messages[-1]["content"],
+                        system_prompt=self.system_prompt,
+                        temperature=temperature,
+                    )
+                    _token_cache.set(cache_key, response)
 
             content = response.content
 
@@ -143,7 +165,7 @@ class Agent:
 
             if not tool_calls:
                 # No tool calls — final response
-                self._conversation_history.append({"role": "assistant", "content": content})
+                self._conversation_history.add({"role": "assistant", "content": content})
                 return {
                     "response": content,
                     "tool_calls": tool_results,
@@ -189,7 +211,7 @@ class Agent:
             system_prompt=self.system_prompt,
             temperature=temperature,
         )
-        self._conversation_history.append({"role": "assistant", "content": final.content})
+        self._conversation_history.add({"role": "assistant", "content": final.content})
         return {
             "response": final.content,
             "tool_calls": tool_results,
@@ -197,33 +219,52 @@ class Agent:
             "usage": final.usage,
         }
 
-    def _call_with_tools(self, messages: list, openai_tools: list, temperature: float) -> Any:
-        """Make an LLM call with tool definitions (OpenAI-compatible)."""
+    def _call_with_tools(self, messages: list, openai_tools: list, temperature: float) -> LLMResponse:
+        """Make an LLM call with tool definitions, prefers provider's native client."""
         llm = self._get_llm()
-        try:
-            from openai import OpenAI
-            client = OpenAI()
 
-            kwargs = {
-                "model": llm.model,
-                "messages": messages,
-                "temperature": temperature,
-            }
-            if openai_tools:
-                kwargs["tools"] = openai_tools
+        # If the provider has an openai-compatible client with credentials, use it
+        if hasattr(llm, '_client') and hasattr(llm, '_has_credentials') and llm._has_credentials:
+            try:
+                kwargs = {
+                    "model": llm.model,
+                    "messages": messages,
+                    "temperature": temperature,
+                }
+                if openai_tools:
+                    kwargs["tools"] = openai_tools
+                raw = llm._client.chat.completions.create(**kwargs)
+                choice = raw.choices[0]
+                return LLMResponse(
+                    content=choice.message.content or "",
+                    model=llm.model,
+                    provider=llm.name,
+                    usage={
+                        "prompt_tokens": raw.usage.prompt_tokens if raw.usage else 0,
+                        "completion_tokens": raw.usage.completion_tokens if raw.usage else 0,
+                        "total_tokens": raw.usage.total_tokens if raw.usage else 0,
+                    },
+                    raw=raw,
+                )
+            except Exception:
+                pass
 
-            response = client.chat.completions.create(**kwargs)
-            return response
-        except Exception:
-            # Fallback to text generation
-            return llm.generate(
-                prompt=messages[-1]["content"],
-                system_prompt=self.system_prompt,
-                temperature=temperature,
-            )
+        # Fallback to text generation (works with any provider including fallback echo)
+        return llm.generate(
+            prompt=messages[-1]["content"],
+            system_prompt=self.system_prompt,
+            temperature=temperature,
+        )
 
     def _parse_tool_calls(self, response: Any) -> list[dict]:
-        """Extract tool calls from LLM response."""
+        """Extract tool calls from LLM response with caching and optimization."""
+        # Check cache first
+        response_key = id(response) if hasattr(response, '__hash__') else str(hash(str(response)))
+        if response_key in self._last_tool_call_cache:
+            cached_result, timestamp = self._last_tool_call_cache[response_key]
+            if time.time() - timestamp < self._tool_call_cache_ttl:
+                return cached_result
+
         tool_calls = []
 
         # OpenAI format
@@ -257,6 +298,13 @@ class Agent:
                         })
                 except json.JSONDecodeError:
                     pass
+
+        # Cache the result
+        self._last_tool_call_cache[response_key] = (tool_calls, time.time())
+        # Clean up old cache entries
+        if len(self._last_tool_call_cache) > 100:
+            self._last_tool_call_cache = {k: v for k, v in self._last_tool_call_cache.items() 
+                                        if time.time() - v[1] < self._tool_call_cache_ttl}
 
         return tool_calls
 

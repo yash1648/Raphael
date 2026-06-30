@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api import (
     agents_router, artifacts_router, memory_router,
@@ -58,3 +61,20 @@ def health_check():
 @app.get("/health/opencode")
 def opencode_health():
     return {"available": False, "status": "adapter_ready"}
+
+
+# Serve frontend static files in production
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """Serve the SPA for all non-API routes."""
+        if full_path.startswith(("api/", "raphael/", "health", "docs", "openapi")):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        index = FRONTEND_DIST / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        return JSONResponse({"detail": "Not Found"}, status_code=404)

@@ -10,9 +10,12 @@ Default model: meta/llama-3.1-70b-instruct
 import os
 from openai import OpenAI, AsyncOpenAI
 
-from app.llm.base import LLMProvider, LLMResponse
+from app.llm.base import LLMProvider, LLMResponse, resolve_api_key, ConnectionPool
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+# Global connection pool instance
+_connection_pool = ConnectionPool()
 
 
 class NVIDIAProvider(LLMProvider):
@@ -21,7 +24,7 @@ class NVIDIAProvider(LLMProvider):
 
     def __init__(self, model: str | None = None, api_key: str | None = None, **kwargs):
         super().__init__(model, **kwargs)
-        resolved_key = api_key or os.environ.get("NVIDIA_API_KEY", "")
+        resolved_key = api_key or resolve_api_key("NVIDIA_API_KEY")
         safe_key = resolved_key if resolved_key else "no-key-configured"
         self._client = OpenAI(api_key=safe_key, base_url=NVIDIA_BASE_URL)
         self._async_client = AsyncOpenAI(api_key=safe_key, base_url=NVIDIA_BASE_URL)
